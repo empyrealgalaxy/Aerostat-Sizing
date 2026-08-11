@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aerostat Sizing Calculator</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div class="container">
+        <img class="brand-logo" src="assets/logo.png"
+            alt="Empyreal Galaxy &mdash; Innovation With Purpose">
+        <div class="header">
+            <h1>Aerostat Sizing Calculator</h1>
+            <p>Physics-based tethered-aerostat sizing calibrated against published data of
+                operational aerostat systems &mdash; from city atmosphere to envelope, tether,
+                helium and cost.</p>
+        </div>
+
+        <div class="card">
+            <h2>Mission Parameters</h2>
+            <div class="error-message" id="errorMessage"></div>
+            <div class="warn-message" id="warnMessage"></div>
+            <div class="input-grid">
+                <div class="form-group">
+                    <label for="cityInput">&#x1F4CD; City / Location</label>
+                    <input type="text" id="cityInput" placeholder="e.g., Mumbai, New Delhi" value="Mumbai">
+                    <span class="hint">Sets ground elevation (and weather in Live mode)</span>
+                </div>
+                <div class="form-group">
+                    <label for="altitudeInput">&#x1F4CF; Altitude Above Ground (m)</label>
+                    <input type="number" id="altitudeInput" min="50" step="1" placeholder="e.g., 1000">
+                </div>
+                <div class="form-group">
+                    <label for="payloadInput">&#x2696;&#xFE0F; Payload Weight (kg)</label>
+                    <input type="number" id="payloadInput" min="0.5" step="0.1" placeholder="e.g., 145">
+                </div>
+                <div class="form-group">
+                    <label for="windMode">&#x1F32C;&#xFE0F; Design Wind Speed</label>
+                    <select id="windMode">
+                        <option value="auto" selected>Automatic &mdash; from weather API (today's max at site)</option>
+                        <option value="manual">Manual entry</option>
+                    </select>
+                    <span class="hint">Drives hull shape selection (&le; 30 kmph &rarr; oblate spheroid)</span>
+                </div>
+                <div class="form-group hidden" id="windManualGroup">
+                    <label for="windInput">&#x1F32C;&#xFE0F; Wind Speed (kmph)</label>
+                    <input type="number" id="windInput" min="0" step="1" placeholder="e.g., 25">
+                    <span class="hint">Enter the design wind for the site manually</span>
+                </div>
+                <div class="form-group">
+                    <label for="enduranceInput">&#x23F1;&#xFE0F; Endurance (days aloft)</label>
+                    <input type="number" id="enduranceInput" min="1" step="1" placeholder="e.g., 14">
+                    <span class="hint">Days between helium top-ups (typically 7&ndash;30)</span>
+                </div>
+                <div class="form-group">
+                    <label for="powerInput">&#x1F50C; Payload Power (kW)</label>
+                    <input type="number" id="powerInput" min="0" step="0.5" value="1">
+                    <span class="hint">Delivered up the tether (sizes conductors)</span>
+                </div>
+                <div class="form-group">
+                    <label for="heliumPriceInput">&#x1F4B0; Helium Price (&#x20B9;/m&#xB3;)</label>
+                    <input type="number" id="heliumPriceInput" min="0" step="10" value="2400">
+                </div>
+                <div class="form-group">
+                    <label for="atmosphereMode">&#x1F321;&#xFE0F; Atmosphere</label>
+                    <select id="atmosphereMode">
+                        <option value="isa" selected>ISA standard atmosphere</option>
+                        <option value="hot">Hot day (ISA +15&deg;C, 60% RH) &mdash; conservative</option>
+                        <option value="live">Live API (current weather at city)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="gas-note">
+                <span class="gas-badge">&#x1F4A8; Lifting Gas: Helium (99.99% purity)</span>
+                <span class="gas-badge muted">Shape auto-selected: oblate spheroid or teardrop</span>
+                <span class="gas-badge muted">Free lift &ge; 14% + endurance make-up</span>
+            </div>
+            <div class="button-group">
+                <button class="btn-primary" id="calculateBtn">Size the Aerostat</button>
+                <button class="btn-secondary" id="resetBtn">Reset</button>
+            </div>
+        </div>
+
+        <div class="card hidden" id="resultsCard">
+            <h2 id="resultHeader">Results</h2>
+
+            <!-- Site & atmosphere -->
+            <div class="section-label">Site &amp; Atmosphere at Design Altitude</div>
+            <div class="result-grid">
+                <div class="result-item">
+                    <div class="result-label">Ground Elevation</div>
+                    <div class="result-value" id="resElevation">&#x2014;</div>
+                    <div class="result-unit">m MSL</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Design Altitude</div>
+                    <div class="result-value" id="resDesignAlt">&#x2014;</div>
+                    <div class="result-unit">m MSL</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Air Temp / Pressure</div>
+                    <div class="result-value" id="resAtmos">&#x2014;</div>
+                    <div class="result-unit" id="resAtmosUnit">at altitude</div>
+                </div>
+                <div class="result-item highlight">
+                    <div class="result-label">Net Unit Lift</div>
+                    <div class="result-value" id="resUnitLift">&#x2014;</div>
+                    <div class="result-unit">kg per m&#xB3; of helium</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Design Wind</div>
+                    <div class="result-value" id="resDesignWind">&#x2014;</div>
+                    <div class="result-unit" id="resDesignWindSrc">kmph</div>
+                </div>
+            </div>
+
+            <!-- Envelope Dimensions -->
+            <div class="section-label" style="margin-top:24px;">Envelope</div>
+            <div class="result-grid">
+                <div class="result-item highlight">
+                    <div class="result-label">Shape</div>
+                    <div class="result-value" id="resShape">&#x2014;</div>
+                    <div class="result-unit" id="resShapeReason"></div>
+                </div>
+                <div class="result-item highlight">
+                    <div class="result-label">Hull Volume</div>
+                    <div class="result-value" id="resVolume">&#x2014;</div>
+                    <div class="result-unit">m&#xB3;</div>
+                </div>
+                <div class="result-item highlight">
+                    <div class="result-label" id="resDimensionLabel">Length</div>
+                    <div class="result-value" id="resLength">&#x2014;</div>
+                    <div class="result-unit" id="resFineness">m</div>
+                </div>
+                <div class="result-item highlight">
+                    <div class="result-label">Max Diameter</div>
+                    <div class="result-value" id="resDiameter">&#x2014;</div>
+                    <div class="result-unit">m</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Surface Area</div>
+                    <div class="result-value" id="resSurface">&#x2014;</div>
+                    <div class="result-unit">m&#xB2;</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Envelope Fabric</div>
+                    <div class="result-value" id="resGsm">&#x2014;</div>
+                    <div class="result-unit" id="resGsmUnit">gsm laminate class</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Ballonet Volume</div>
+                    <div class="result-value" id="resBallonetVol">&#x2014;</div>
+                    <div class="result-unit" id="resBallonetPct">m&#xB3;</div>
+                </div>
+            </div>
+
+            <!-- Mass budget -->
+            <div class="section-label" style="margin-top:24px;">Mass &amp; Lift Budget</div>
+            <table class="data" id="massTable"></table>
+
+            <!-- Tether -->
+            <div class="section-label" style="margin-top:24px;">Tether</div>
+            <div class="result-grid">
+                <div class="result-item">
+                    <div class="result-label">Tether Length</div>
+                    <div class="result-value" id="resTetherLen">&#x2014;</div>
+                    <div class="result-unit">m (slant + reserve)</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Linear Density</div>
+                    <div class="result-value" id="resTetherGpm">&#x2014;</div>
+                    <div class="result-unit" id="resTetherSplit">g/m</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Design Tension</div>
+                    <div class="result-value" id="resTension">&#x2014;</div>
+                    <div class="result-unit">kN</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Required Break Load</div>
+                    <div class="result-value" id="resMBL">&#x2014;</div>
+                    <div class="result-unit">kN (SF 3.0)</div>
+                </div>
+            </div>
+
+            <!-- Helium & cost -->
+            <div class="section-label" style="margin-top:24px;">Helium &amp; Cost</div>
+            <div class="result-grid">
+                <div class="result-item">
+                    <div class="result-label">Initial Fill</div>
+                    <div class="result-value" id="resInitialVol">&#x2014;</div>
+                    <div class="result-unit" id="resFillPct">m&#xB3; at ground</div>
+                </div>
+                <div class="result-item cost">
+                    <div class="result-label">Initial Fill Cost</div>
+                    <div class="result-value" id="resInitialCost">&#x2014;</div>
+                    <div class="result-unit"></div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Leak Rate</div>
+                    <div class="result-value" id="resLeakRate">&#x2014;</div>
+                    <div class="result-unit">m&#xB3;/day (4 L/m&#xB2;/day)</div>
+                </div>
+                <div class="result-item">
+                    <div class="result-label">Top-Up Over Endurance</div>
+                    <div class="result-value" id="resTopupVol">&#x2014;</div>
+                    <div class="result-unit">m&#xB3;</div>
+                </div>
+                <div class="result-item cost">
+                    <div class="result-label">Top-Up Cost</div>
+                    <div class="result-value" id="resTopupCost">&#x2014;</div>
+                    <div class="result-unit"></div>
+                </div>
+            </div>
+
+            <!-- Shape diagram — kept at the end of the page -->
+            <div class="section-label" style="margin-top:24px;">Shape Diagram (to scale)</div>
+            <div class="diagram-box" id="shapeDiagram"></div>
+
+            <div class="data-source" id="resDataSource"></div>
+        </div>
+
+        <p class="credit">Prepared By Parveen kumar &amp; Deepak B</p>
+    </div>
+
+    <script src="sizing.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
